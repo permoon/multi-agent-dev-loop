@@ -1,8 +1,56 @@
 # multi-agent-dev-loop
 
-A Claude Code plugin that coordinates **Claude + Codex + Gemini** through a structured 7-step workflow for non-trivial implementation work — multi-file features, refactors, schema/IAM/data changes, deploys, or any task with rollback risk or large blast radius.
+A standalone skill for running high-risk implementation work through a
+multi-agent development loop.
 
-Each step produces a fixed artifact, enabling **resumability**, **auditability**, and **post-deploy verification** with automatic failure routing.
+Instead of asking one agent to plan, code, deploy, and debug in a single fragile
+thread, this skill coordinates **Claude + Codex + Gemini** through a fixed
+workflow:
+
+```text
+plan -> review -> code -> review -> deploy -> smoke test -> triage
+```
+
+The goal is not ceremony. The goal is to make autonomous development
+**resumable, inspectable, and safer when the blast radius is real**.
+
+[繁體中文](./README.zh-TW.md)
+
+## Why this exists
+
+AI coding agents are good at moving fast, but risky work needs more than speed.
+When a task touches schema, IAM, data pipelines, deploy config, migrations, or
+multiple files, the hard part is usually not writing code. It is keeping the
+plan, assumptions, validation, rollback path, and post-deploy evidence aligned.
+
+`multi-agent-dev-loop` gives the agent a repeatable operating model:
+
+- Write a concrete plan before coding
+- Challenge the plan and validation strategy with another agent
+- Produce a smoke test as part of implementation
+- Review deploy-sensitive changes before release
+- Route failures back to the correct step instead of guessing
+- Leave artifacts behind so humans can audit or resume the work
+
+## When to use it
+
+Use this skill for non-trivial implementation work:
+
+- Multi-file features or refactors
+- Architecture decisions
+- Schema, IAM, or data changes
+- Deploys and migrations
+- Rollback risk
+- Large blast radius
+- Work that should be auditable or resumable
+
+Skip it for:
+
+- Typos and single-line edits
+- Formatting-only changes
+- Pure exploration or Q&A
+- One-off scripts that will not be deployed
+- Explicit quick fixes
 
 ## What it does
 
@@ -10,59 +58,99 @@ Each step produces a fixed artifact, enabling **resumability**, **auditability**
 |---|---|---|
 | 1. Plan | Claude | `plans/<feature>/plan.md` + `validation.md` |
 | 2. Plan review | Codex | `plans/<feature>/review-codex.md` |
-| 3. Revise + re-review | Claude + Codex | revised `plan.md` |
-| 3.5. Red Team (conditional) | Claude + Codex + Gemini | `plans/<feature>/red-team.md` |
-| 4. Code | Codex | source files + `scripts/smoke/<feature>.sh` |
-| 5. Code review | Claude | inline fixes / review notes back to Codex |
-| 6. Deploy review (GCP, conditional) | Gemini | `plans/<feature>/review-gemini.md` |
-| 7. Post-deploy verify | Claude | `runs/<timestamp>-<feature>/{smoke.log,triage.md}` |
+| 3. Revise + re-review | Claude + Codex | revised plan artifacts |
+| 3.5. Red team, conditional | Claude + Codex + Gemini | `plans/<feature>/red-team.md` |
+| 4. Implement | Codex | source files + `scripts/smoke/<feature>.sh` |
+| 5. Code review | Claude | inline fixes or review notes back to Codex |
+| 6. Deploy review, conditional GCP | Gemini | `plans/<feature>/review-gemini.md` |
+| 7. Verify + triage | Claude | `runs/<timestamp>-<feature>/{smoke.log,triage.md}` |
 
-If the smoke test in Step 7 fails, triage maps the failure type back to the correct earlier step (deploy bug → Step 6, logic bug → Step 4, plan-intent bug → Step 1, false-negative test → fix `validation.md`).
+If the smoke test fails, the skill classifies the failure and routes it:
 
-## When to invoke
-
-Trigger when the task is non-trivial implementation work: multi-file features or refactors, architecture decisions, schema/IAM/data design or changes, deploys, or any task with rollback risk or large blast radius.
-
-**Skip** for typos, single-line edits, pure exploration, or quick fixes.
+| Failure type | Route |
+|---|---|
+| Deploy failed: service will not start, IAM denied, invalid config | Step 6 |
+| Deploy succeeded but behavior is wrong | Step 4 |
+| Behavior matches code but not the intended plan | Step 1 |
+| Smoke test is a false negative | Fix `validation.md`, then rerun from Step 4 |
 
 ## Install
 
+This repository is now a standalone skill. Copy the repository folder into the
+skills directory used by your agent environment.
+
+For Codex:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R /path/to/multi-agent-dev-loop ~/.codex/skills/
 ```
-/plugin marketplace add permoon/multi-agent-dev-loop
-/plugin install multi-agent-dev-loop
+
+For Claude Code or other skill-compatible environments, copy this folder into
+that tool's configured skills directory.
+
+The skill entrypoint is:
+
+```text
+SKILL.md
 ```
 
 ## Prerequisites
 
-- [`codex`](https://github.com/openai/codex) CLI installed and authenticated (`codex exec --help` works)
-- [`gemini`](https://github.com/google-gemini/gemini-cli) CLI installed and authenticated (only required for Step 3.5 / 6)
-- A working directory where the artifact tree (`plans/`, `deploy/`, `scripts/smoke/`, `runs/`) can be created
+- `codex` CLI installed and authenticated (`codex exec --help` works)
+- `gemini` CLI installed and authenticated for red-team and GCP deploy review
+- A working directory where the artifact tree can be created
+
+Gemini is only needed for conditional red-team and GCP deploy-review steps.
 
 ## Artifact tree
 
-```
+```text
 plans/<feature>/
-  plan.md              # Step 1: implementation plan
-  validation.md        # Step 1: pre-deploy / smoke / rollback
-  red-team.md          # Step 3.5 (if triggered)
-  review-codex.md      # Step 2 / 5
-  review-gemini.md     # Step 6 (if triggered)
-deploy/<feature>/      # Step 6: deploy artifacts
-scripts/smoke/<feature>.sh   # Step 4: smoke test script
+  plan.md
+  validation.md
+  red-team.md
+  review-codex.md
+  review-gemini.md
+deploy/<feature>/
+scripts/smoke/<feature>.sh
 runs/<timestamp>-<feature>/
-  smoke.log            # Step 7
-  triage.md            # Step 7 (if failed)
+  smoke.log
+  triage.md
 ```
+
+`<feature>` should be kebab-case, such as `workflow-daily-ingest`.
+`<timestamp>` uses `YYYYMMDD-HHMMSS`.
 
 ## Output contract
 
 After each step, the skill reports exactly three lines:
 
-1. **Step**: which step finished
-2. **Artifact**: file path produced
-3. **Next**: which step is next, or escalation reason
+```text
+Step: <step just finished>
+Artifact: <file path produced>
+Next: <next step or escalation reason>
+```
 
-Brief progress, no long-form narration.
+Large outputs go into files, not chat.
+
+## Example
+
+User request:
+
+```text
+Add a daily aggregate table analytics.daily_user_summary and a workflow to
+refresh it at 6am.
+```
+
+The skill produces:
+
+- A concrete implementation plan and validation plan
+- Codex review notes challenging schema, IAM, deploy order, and smoke coverage
+- Implementation plus an idempotent smoke test
+- Claude code review
+- Optional Gemini deploy review if GCP risk is high
+- Smoke-test output and triage if verification fails
 
 ## License
 
