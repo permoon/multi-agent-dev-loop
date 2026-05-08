@@ -1,0 +1,28 @@
+{
+  "name": "multi-agent-dev-loop",
+  "owner": {
+    "name": "permoon",
+    "email": "permoon@users.noreply.github.com"
+  },
+  "metadata": {
+    "description": "Multi-agent collaboration loop for non-trivial implementation work, coordinating Claude + Codex + Gemini through a structured 7-step plan/review/code/deploy/verify workflow with fixed artifacts and explicit failure routing.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "multi-agent-dev-loop",
+      "source": "./plugins/multi-agent-dev-loop",
+      "description": "Multi-agent collaboration workflow for non-trivial implementation tasks: plan → review → code → review → deploy → smoke test → triage, with fixed artifact paths and explicit failure routing.",
+      "version": "1.0.0",
+      "author": {
+        "name": "permoon",
+        "email": "permoon@users.noreply.github.com"
+      },
+      "homepage": "https://github.com/permoon/multi-agent-dev-loop",
+      "repository": "https://github.com/permoon/multi-agent-dev-loop",
+      "license": "MIT",
+      "keywords": ["workflow", "multi-agent", "codex", "gemini", "code-review", "automation", "verification"],
+      "category": "workflow"
+    }
+  ]
+}
