@@ -2,6 +2,8 @@
 
 一個 standalone skill，用多 agent 開發流程處理高風險實作工作。
 
+![流程圖](./docs/demo.png)
+
 它不是讓單一 agent 在同一段脆弱對話裡一次完成計畫、寫 code、部署和除錯，
 而是把 **Claude + Codex + Gemini** 串成固定流程：
 

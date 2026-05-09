@@ -3,6 +3,8 @@
 A standalone skill for running high-risk implementation work through a
 multi-agent development loop.
 
+![Workflow diagram](./docs/demo.png)
+
 Instead of asking one agent to plan, code, deploy, and debug in a single fragile
 thread, this skill coordinates **Claude + Codex + Gemini** through a fixed
 workflow:
