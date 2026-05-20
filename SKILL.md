@@ -1,312 +1,375 @@
 ---
-name: multi-agent-dev-loop
+name: Multi-Agent Dev Loop
 description: >
-  Use this skill for non-trivial implementation work that needs a disciplined
-  multi-agent development loop: multi-file features or refactors, architecture
-  decisions, schema/IAM/data changes, deploys, migrations, rollback risk, or
-  large blast radius. Coordinates Claude for planning/review/triage, Codex for
-  plan review and implementation, and Gemini for red-team or GCP deploy review.
-  Produces fixed artifacts for plan, validation, code review, smoke tests,
-  deployment checks, and failure routing. Skip for typos, single-line edits,
-  pure exploration, one-off scripts, or when the user asks for a quick fix.
+  Multi-agent collaboration loop for non-trivial implementation work —
+  multi-file features or refactors, architecture decisions, schema/IAM/data
+  design or changes, deploys, or any task with rollback risk or large
+  blast radius. Covers both greenfield projects and existing codebases.
+  Coordinates Claude (plan, review, triage, retrospective) + Codex (review,
+  code) + Gemini (red team, GCP deploy review) through 8 steps with fixed
+  artifact paths and explicit failure routing. Skip for typos, single-line
+  edits, pure exploration, or when the user requests a quick fix.
 ---
 
 # Multi-Agent Dev Loop
 
-Use this skill to turn high-risk autonomous coding into an auditable loop:
-plan, challenge, implement, review, deploy, verify, and route failures back to
-the right step.
+A structured collaboration loop that coordinates Claude (planning, code review,
+triage, retrospective), Codex (plan review, implementation), and Gemini (red
+team, GCP deploy review). Each step produces a fixed artifact, enabling
+resumability, auditability, post-deploy verification with automatic failure
+routing, and retrospective evaluation for workflow improvement.
 
-The loop coordinates:
+## When to Trigger
 
-- Claude: planning, code review, triage
-- Codex: plan review, implementation
-- Gemini: red team, GCP deploy review
+Invoke this skill when ALL apply:
 
-Each step writes a fixed artifact so the work is resumable, reviewable, and
-safe to hand between agents.
+1. The task is **non-trivial implementation work** — multi-file features
+   or refactors, architecture decisions, schema / IAM / data design or
+   changes, deploy involved, or any task with rollback risk or large
+   blast radius. Applies to both greenfield projects and existing codebases.
+2. The task has clear scope (a feature, a refactor, a migration, an
+   architectural decision), not pure exploration.
+3. The user has not explicitly asked you to skip the workflow.
 
-## Trigger Rules
-
-Use this skill when all are true:
-
-1. The task is non-trivial implementation work: multi-file feature/refactor,
-   architecture decision, schema/IAM/data change, deploy, migration, rollback
-   risk, or large blast radius.
-2. The task has a clear scope: a feature, refactor, migration, deploy, or
-   architectural decision.
-3. The user has not explicitly asked to skip the workflow.
-
-Skip this skill for:
+### Non-Trigger (skip the workflow)
 
 - Single-line edits, typo fixes, formatting-only changes
-- Pure exploration or Q&A
-- One-off scripts that will not be deployed
-- Requests phrased as "quick fix", "just do it", or "no review needed"
+- Pure exploration / Q&A ("how does this work?", "where is X defined?")
+- One-off scripts that won't be deployed
+- The user explicitly says "just do it" / "quick fix" / "no review needed"
 
 ## Workflow
 
-### Step 1: Plan
+### Step 1: Plan (Claude)
 
-Write:
+- Use the Plan agent → write to `plans/<feature>/plan.md`
+- Plan must be implementation-ready but not implementation-complete.
+  It should give Codex enough constraints to build the right thing after
+  reading the repo, without turning `plan.md` into a bundle of source files
+  to paste.
+- Include exact contracts, invariants, affected modules, edge cases, data
+  migrations, validation expectations, and acceptance criteria.
+- Use exact source artifacts only when the artifact itself is declarative or
+  contract-like: SQL DDL / migration SQL, schema definitions, IAM policy,
+  workflow YAML, API contracts, prompt templates, config files, or command
+  examples.
+- For application code, avoid full production-ready files or large copyable
+  implementations. Describe behavior, interfaces, important algorithms,
+  test cases, and integration points. Small snippets are OK when they clarify
+  a tricky invariant or API shape, but Codex owns the final code structure.
+- No pseudocode for critical logic that affects data correctness, security,
+  rollback, or user-visible behavior. Express those requirements as precise
+  rules, examples, truth tables, queries, contracts, or test cases rather than
+  full app-code implementations.
+- **Also produce `plans/<feature>/validation.md`** containing:
+  - **Pre-deploy check**: environment readiness (dependent services / IAM /
+    config in place)
+  - **Post-deploy smoke test**: concrete steps, commands, expected output,
+    quantified pass thresholds
+  - **Rollback trigger**: quantified conditions (e.g., error rate > 5% for
+    10 min, BQ partition missing, IAM rejection rate spike)
+- Validation is produced in **two passes**:
+  - **Pass 1 (now, in Step 1)**: derive from plan goals (reverse-engineered)
+    and change blast radius — write the initial `validation.md`
+  - **Pass 2 (later, only if Step 3.5 ran)**: revise `validation.md` with
+    new smoke checks and rollback triggers covering the failure scenarios
+    surfaced by Red Team — see Step 3.5 for the revision contract
 
-- `plans/<feature>/plan.md`
-- `plans/<feature>/validation.md`
+#### Plan vs Implementation Boundary
 
-The plan must be concrete. Include actual SQL, schemas, prompts, APIs, file
-paths, rollout steps, and contracts where relevant. Avoid pseudocode for
-critical logic.
+The loop is useful only when the agents have distinct jobs:
 
-The validation plan must include:
+- Claude owns the executable specification: intent, constraints, contracts,
+  risks, validation, rollback, and the reasoning behind important choices.
+- Codex owns the repository implementation: reading local patterns, choosing
+  the concrete code shape, editing files, adding tests, and reporting any
+  justified deviation from the plan.
 
-- Pre-deploy checks: services, IAM, config, datasets, secrets, and dependencies
-- Post-deploy smoke test: commands, expected output, and quantified thresholds
-- Rollback trigger: quantified, observable conditions
+`plan.md` should be strong enough that a competent engineer could implement
+it consistently, but incomplete enough that Codex still has to inspect the
+codebase and make implementation decisions. If a section reads like "copy
+this entire file into the repo", rewrite it as contracts, behavior, examples,
+and acceptance tests unless it is one of the declarative artifacts listed
+above.
 
-Validation should be derived from the plan goals, the blast radius, and any red
-team findings.
+### Step 2: Codex reviews the plan
 
-### Step 2: Codex Plan Review
+- `codex exec --full-auto` reviews `plan.md` + `validation.md` together
+- Codex must check the plan/implementation boundary: flag any application
+  source file or large copyable code block that should instead be expressed
+  as contracts, behavior, examples, or tests. Declarative artifacts such as
+  SQL, IAM, workflow YAML, schemas, prompts, and config are allowed when they
+  are the actual deployable artifact.
+- The validation plan itself must be challenged: does the smoke test actually
+  verify the plan's goals? Is the rollback trigger quantified and detectable?
+- Notes → `plans/<feature>/review-codex-round1.md`
 
-Ask Codex to review `plan.md` and `validation.md` together.
+### Step 3: Revise + re-review
 
-Require Codex to challenge:
+- Adjust per `review-codex-round1.md`, send back to `codex exec --full-auto`
+  for a second review
+- Notes → `plans/<feature>/review-codex-round2.md` (do **not** overwrite
+  round1; both rounds must remain side-by-side for audit trail)
+- Max 2 round trips; if still divergent, list both views and escalate to
+  the user
 
-- Whether the plan can actually meet the goal
-- Whether the smoke test proves the goal
-- Whether rollback triggers are quantified and detectable
-- Whether hidden dependencies, permissions, or data assumptions are missing
+### Step 3.5: Red Team Test (conditional)
 
-Write notes to:
+**Triggered for**: distributed systems, IAM changes, data destruction,
+concurrency, large blast radius, or when the user requests it.
 
-- `plans/<feature>/review-codex.md`
+- Three teams in parallel (`run_in_background`, identical prompt):
+  Claude / `codex exec --full-auto` / `gemini -p`
+- **Adopt an attacker's perspective to find failure boundaries; do NOT
+  propose fixes.**
+- Check: hidden assumptions, dependency failures, edge inputs, misuse paths,
+  rollback and blast radius — concrete failure scenarios, not abstract claims
+- Aggregation: dedupe → split into "consensus (≥2 teams) / single-team only"
+  → grade by severity (must-fix / should-fix / acceptable)
+- Output → `plans/<feature>/red-team.md`
+- **Then revise `validation.md` (Pass 2)**: add smoke checks and rollback
+  triggers covering must-fix and should-fix red-team findings. This
+  revision is **required before Step 4** whenever Step 3.5 ran.
+- Escalate to user before step 4
 
-### Step 3: Revise And Re-Review
+### Step 4: Codex writes code
 
-Revise the plan from Codex feedback. Send it back for one more Codex review.
+- `codex exec --full-auto` implements per the final plan
+- Codex must inspect the existing codebase and adapt to local conventions
+  before editing. It should not mechanically copy app-code snippets from
+  `plan.md`; snippets are constraints or examples unless explicitly labeled
+  as declarative artifacts to apply verbatim.
+- **Also produce `plans/<feature>/deviations.md`** listing every meaningful
+  deviation from `plan.md`:
+  - What `plan.md` specified vs what Codex did instead
+  - Why: codebase constraint / local convention / discovered edge case /
+    plan ambiguity (flag for clarification)
+  - Severity: minor (cosmetic / style) or structural (behavior / contract /
+    interface)
+  - If no deviations, write "No deviations." as audit marker (still create
+    the file)
+- **Also produce smoke test script** `scripts/smoke/<feature>.sh`:
+  - Implements the Post-deploy smoke test section of `validation.md`
+  - Idempotent (re-runnable, no side effects)
+  - exit 0 = pass; non-zero = fail, with stderr listing failed items and
+    actual vs expected values
+  - Verification uses sampled / read-only access; use a separate test SA
+    when needed to avoid polluting prod
 
-Limit this to 2 review round trips. If disagreement remains, summarize both
-positions and escalate to the user.
+### Step 5: Claude reviews code
 
-### Step 3.5: Red Team Test
+- Check code quality, security, and consistency with the plan
+- Read `plans/<feature>/deviations.md` and verify each entry is justified by
+  the codebase's actual structure or constraints, not by skipping required
+  work. Then check the diff for silent deviations not listed there.
+  Unjustified or unlisted deviations are major issues.
+- Issue grading:
+  - **Minor** (typos, formatting, single-line logic, comments): Claude fixes
+    directly
+  - **Major** (logic errors, architectural deviation, cross-file impact,
+    security concerns): send review notes back to `codex exec --full-auto`
+- Notes → `plans/<feature>/review-claude.md` (this is Claude's review, not
+  a Codex one — kept separate from `review-codex-round{1,2}.md`)
+- Report the diff after fixes
 
-Run this step for distributed systems, IAM changes, destructive data changes,
-concurrency, large blast radius, or explicit user request.
+### Step 6: Pre-deploy Gemini review (conditional, GCP)
 
-Run three independent red-team passes when available:
+**Triggered for**: high-risk GCP deploys (IAM changes, new services,
+irreversible data ops, large blast radius).
 
-- Claude
-- `codex exec --full-auto`
-- `gemini -p`
+- `gemini -p` reviews deploy artifacts (workflows yaml, terraform, deploy SQL,
+  IAM config, Cloud Build config, etc.)
+- Focus: least-privilege IAM, region / API compatibility, recent GCP behavior
+  changes, resource naming and dependency order
+- Apply feedback:
+  - **Default**: Claude edits (deploy artifacts are mostly yaml / SQL / shell;
+    Claude already has plan context)
+  - **Switch to Codex** for large changes or cross-file refactors
+    (`codex exec --full-auto`)
+- Notes → `plans/<feature>/review-gemini.md`
+- Re-deploy after fixes
 
-Prompt each reviewer to adopt an attacker's perspective, find failure
-boundaries, and avoid proposing fixes. Ask for concrete failure scenarios:
-hidden assumptions, dependency failures, edge inputs, misuse paths, rollback
-holes, and blast-radius surprises.
+### Step 7: Post-deploy verification
 
-Aggregate results into:
+Run after every deploy (regardless of whether step 6 ran).
 
-- consensus issues: found by at least 2 reviewers
-- single-team issues
-- severity: must-fix, should-fix, acceptable
+- Run `scripts/smoke/<feature>.sh` → output to
+  `runs/<timestamp>-<feature>/smoke.log`
+- **Read result**:
+  - exit 0 + all thresholds pass → enter monitoring window, report done
+  - Otherwise → triage
 
-Write:
-
-- `plans/<feature>/red-team.md`
-
-Escalate must-fix findings to the user before implementation.
-
-### Step 4: Implement
-
-Ask Codex to implement the final reviewed plan.
-
-Also produce:
-
-- `scripts/smoke/<feature>.sh`
-
-The smoke script must:
-
-- Implement the post-deploy smoke test from `validation.md`
-- Be idempotent and safe to rerun
-- Use read-only or sampled verification where possible
-- Exit `0` on pass
-- Exit non-zero on fail, writing failed checks and actual-vs-expected values to
-  stderr
-
-Use a separate test service account when needed to avoid polluting production.
-
-### Step 5: Code Review
-
-Claude reviews the implementation for:
-
-- Consistency with `plan.md`
-- Correctness of the smoke test
-- Security and permission boundaries
-- Rollback and migration safety
-- Style and consistency with the existing codebase
-
-Fix minor issues directly: typos, comments, formatting, single-line logic.
-
-Send major issues back to Codex: architecture drift, logic errors, cross-file
-impact, security concerns, or non-trivial test changes.
-
-Report the diff after fixes.
-
-### Step 6: Pre-Deploy Gemini Review
-
-Run this for high-risk GCP deploys: IAM changes, new services, irreversible data
-operations, or large blast radius.
-
-Ask Gemini to review deploy artifacts such as:
-
-- Workflow YAML
-- Terraform
-- Deploy SQL
-- IAM config
-- Cloud Build config
-- Scheduler/Eventarc/Pub/Sub config
-
-Focus the review on least privilege, region/API compatibility, recent GCP
-behavior, naming, dependency order, and rollback safety.
-
-Write:
-
-- `plans/<feature>/review-gemini.md`
-
-Claude may apply small YAML/SQL/shell fixes directly. Send large cross-file
-changes back to Codex.
-
-### Step 7: Post-Deploy Verification And Triage
-
-After every deploy, run:
-
-- `scripts/smoke/<feature>.sh`
-
-Write output to:
-
-- `runs/<timestamp>-<feature>/smoke.log`
-
-If the smoke test passes, report verification summary and monitoring status.
-
-If it fails, read `smoke.log`, `plan.md`, `validation.md`, and the code diff.
-Classify the failure and route it:
+**Triage** (Claude reads `smoke.log` + `plan.md` + code changes, picks the
+rollback target, writes conclusion to
+`runs/<timestamp>-<feature>/triage.md`):
 
 | Failure type | Go back to |
 |---|---|
-| Deploy failed: service will not start, IAM denied, config invalid | Step 6 |
-| Deploy succeeded but behavior is wrong | Step 4 |
-| Behavior matches code but not plan intent | Step 1 |
-| Smoke test is a false negative | Fix `validation.md`, then rerun from Step 4 |
+| Deploy itself failed (service won't start, IAM denied) | Step 6 (fix deploy config) |
+| Deploy OK but behavior wrong (logic bug) | Step 4 (fix code) |
+| Behavior matches code but not plan intent | Step 1 (fix plan) |
+| Smoke test false negative | Fix `validation.md`, rerun from step 4 |
 
-If the rollback trigger in `validation.md` fires, rollback first, then triage.
+- **Rollback**: if `validation.md` rollback trigger fires, rollback first,
+  then triage
+- **Retry cap**: step 4 ↔ 7 ≤ 3 round trips; otherwise escalate to user
+- **Report**: verification summary, triage conclusion (if any), monitoring
+  status
 
-Limit Step 4 to Step 7 retries to 3 round trips. Escalate after that.
+### Step 8: Self-Evaluation
 
-Write triage conclusions to:
+Run once per feature, after Step 7 settles (smoke test passed, or triage and
+retries concluded). Goal: capture an unbiased retrospective so SKILL.md
+itself can improve over time.
 
-- `runs/<timestamp>-<feature>/triage.md`
+- Orchestrator dispatches a fresh Claude subagent (Agent tool,
+  `subagent_type: general-purpose`) with the rubric and artifact paths
+- The subagent has no prior conversation context — sees only the rubric and
+  the files it is told to read. This is what makes the evaluation unbiased
+  versus orchestrator self-evaluation.
+- Subagent scores 5 dimensions, writes `plans/<feature>/evaluation.md`,
+  and exits
+- Orchestrator confirms the file exists and reports the path; does not
+  re-evaluate or argue with the scores
+
+**Subagent prompt framing**:
+
+> You are an independent workflow evaluator. You did not write the plan,
+> review, or code. Score strictly per the rubric. For any score below 4,
+> cite file:line or artifact section as evidence, state impact, and propose
+> a concrete SKILL.md revision. Write to `plans/<feature>/evaluation.md`
+> and exit.
+
+**Inputs passed to subagent**:
+
+- Required: `plan.md`, `validation.md`, `review-codex-round1.md`,
+  `review-codex-round2.md` (if Step 3 ran a second round), `deviations.md`,
+  `review-claude.md`, `scripts/smoke/<feature>.sh`,
+  `runs/<timestamp>-<feature>/smoke.log`, git diff for the feature's
+  commit range
+- Conditional: `red-team.md` (if Step 3.5 ran), `review-gemini.md` (if Step
+  6 ran), `runs/<timestamp>-<feature>/triage.md` (if Step 7 triaged)
+
+**Rubric (1–5 with anchors)**:
+
+| # | Dimension | 1 | 3 | 5 |
+|---|---|---|---|---|
+| 1 | Plan Quality | `plan.md` contains large app-code blocks, or `validation.md` missing a section | Structure complete but rollback trigger not quantified | Fully respects Plan vs Implementation Boundary; all `validation.md` sections quantified |
+| 2 | Review Usefulness | Reviews missed issues that surfaced in Step 7 | Reviews caught some issues but added noise / false positives | Reviews caught the issues that mattered, minimal noise |
+| 3 | Implementation Drift | `deviations.md` missed silent deviations (verifiable from diff) | Deviations recorded but rationale weak | Deviations completely recorded with codebase-grounded rationale |
+| 4 | Trigger Correctness | In hindsight a quick fix — full loop was overkill | Loop justified but some steps added little value | Blast radius genuinely required the full loop |
+| 5 | Time Efficiency | record-only: wall-clock, Codex / Gemini call counts (no anchor) |||
+
+**For each score < 4**: Evidence (file:line or artifact section) / Impact
+(time, bug, rollback) / Suggested SKILL.md revision (concrete diff target).
+
+**Roll-up** (every 10 evaluations or monthly, whichever first):
+
+- Orchestrator dispatches a second subagent to aggregate
+  `plans/*/evaluation.md` since the last roll-up
+- Output → `runs/rollup-<YYYYMM>.md` with per-dimension average / minimum,
+  recurring sub-4 dimensions, and repeated SKILL.md revision suggestions
+- Propose SKILL.md changes when the same suggestion appears ≥ 2 times
 
 ## Artifact Paths
 
-Use kebab-case for `<feature>`, such as `workflow-daily-ingest`.
-Use `YYYYMMDD-HHMMSS` for `<timestamp>`.
-
-```text
+```
 plans/<feature>/
-  plan.md
-  validation.md
-  red-team.md
-  review-codex.md
-  review-gemini.md
-deploy/<feature>/
-scripts/smoke/<feature>.sh
+  plan.md                    # Step 1: implementation plan
+  validation.md              # Step 1 + Step 3.5: two-pass validation plan
+  red-team.md                # Step 3.5: red team output (if triggered)
+  review-codex-round1.md     # Step 2: Codex plan review notes (first round)
+  review-codex-round2.md     # Step 3: Codex plan review notes (second round, if needed)
+  deviations.md              # Step 4: implementation deviations from plan
+  review-claude.md           # Step 5: Claude code review notes
+  review-gemini.md           # Step 6: Gemini review notes (if triggered)
+  evaluation.md              # Step 8: retrospective evaluation
+deploy/<feature>/            # Step 6: deploy artifacts (yaml / terraform / SQL / IAM)
+scripts/smoke/<feature>.sh   # Step 4: smoke test script
 runs/<timestamp>-<feature>/
-  smoke.log
-  triage.md
+  smoke.log                  # Step 7: smoke test output
+  triage.md                  # Step 7: triage conclusion (if failed)
+runs/rollup-<YYYYMM>.md      # Step 8: monthly / per-10-eval roll-up
 ```
 
-Commit planning, review, deploy, and smoke test artifacts when they are useful
-for traceability. Decide per project whether `runs/` logs belong in git.
+- `<feature>`: kebab-case short descriptor (e.g., `workflow-daily-ingest`)
+- `<timestamp>`: `YYYYMMDD-HHMMSS`
+- Commit artifacts to git for review and traceability; for `runs/`, decide
+  per project (small logs OK, large logs → `.gitignore`)
 
 ## Output Contract
 
 After each step, report exactly three lines:
 
-```text
-Step: <step just finished>
-Artifact: <file path produced>
-Next: <next step or escalation reason>
-```
+1. **Step**: which step just finished
+2. **Artifact**: the file path produced
+3. **Next**: which step is next, or escalation reason if blocked
 
-Keep progress notes short. Put large outputs in files, not chat.
+Brief progress, no long-form narration.
 
-## Tool Notes
+## Tool Invocation Notes
 
-Before first use in a session, check:
-
-- `codex exec --help`
-- `gemini --help`
-
-Use `codex exec --full-auto` for Codex review and implementation. If outside a
-git repo, confirm whether `--skip-git-repo-check` is required.
-
-Before invoking Gemini, confirm the available flags. Gemini headless modes and
-filesystem restrictions may differ by version.
-
-When dispatching work to Codex or Gemini, always specify:
-
-- The exact task
-- Input files to read
-- Output file path to write
-- That large output must go to a file
-- The expected summary format
-
-If output is truncated or too large, stop retrying inline and write it to a
-file.
+- Before invoking Gemini CLI, run `gemini --help` to confirm flags
+  (headless mode blocks `write_file` by default, blocks `.tmp_*`,
+  restricted to cwd)
+- Same for Codex CLI; `codex exec --full-auto` outside a git repo requires
+  `--skip-git-repo-check`. Run `codex exec --help` first to confirm flags
+- Subagent or external tool large output (>10KB) must be written to a repo
+  file, not returned inline; messages return only file path, summary, key
+  conclusion, next step
+- When dispatching to Codex / Gemini, the orchestrator must specify output
+  format, file path, and large-output rules in the prompt
+- If output is truncated or over limit, stop retrying — write to file and
+  report the path
 
 ## Prerequisites
 
-- `codex` CLI installed and authenticated
-- `gemini` CLI installed and authenticated for red-team and GCP deploy review
-- A working directory where artifact paths can be created
+- `codex` CLI installed and authenticated (`codex exec --help` works)
+- `gemini` CLI installed and authenticated (only required for steps 3.5 / 6)
+- A working directory where the artifact tree can be created
 
 ## Examples
 
-### New BigQuery Table And Workflow
+### Example 1: New BQ table + Workflow
 
-User asks:
+User: "Add a new daily aggregate table `4D_datamart.dm_kol_daily` and a
+workflow to refresh it at 6am."
 
-```text
-Add a daily aggregate table analytics.daily_user_summary and a workflow to
-refresh it at 6am.
-```
+- **Step 1** → `plans/dm-kol-daily/plan.md` (table DDL/schema, partition
+  strategy, source query, workflow YAML as a declarative artifact) +
+  `validation.md`:
+  - Pre-deploy: source tables exist, IAM SA has `roles/bigquery.jobUser`
+  - Smoke test: workflow execution succeeds, today's partition has > 0 rows,
+    no null in `kol_id`
+  - Rollback: any null in primary key → drop partition + page on-call
+- **Step 2** → Codex flags: "no clustering on `kol_id`, will scan full table
+  on most queries"
+- **Step 3** → revised plan adds clustering on `kol_id`
+- **Step 3.5** → skipped (low blast radius, not distributed, no IAM destruction)
+- **Step 4** → Codex applies the DDL and workflow YAML from `plan.md` into
+  deploy artifacts, adapts them to repo layout if needed, and writes
+  `scripts/smoke/dm-kol-daily.sh` (`bq query` + row-count assertion +
+  null check)
+- **Step 5** → Claude review: minor SQL style fix, applied directly
+- **Step 6** → Gemini reviews workflow YAML + IAM (new service combo);
+  suggests adding `connector_params.timeout` to BQ connector
+- **Step 7** → deploy, run smoke test → exit 0, monitoring window started
+- **Step 8** → subagent reads all artifacts; scores Plan 5 / Reviews 4 /
+  Drift 5 / Trigger 5; writes `plans/dm-kol-daily/evaluation.md`
 
-Expected loop:
+### Example 2: Triage after smoke test failure
 
-- Step 1 writes a table schema, partition strategy, source query, workflow
-  outline, validation plan, row-count smoke test, null-key check, and rollback
-  trigger.
-- Step 2 Codex challenges clustering, partition filters, IAM, and smoke-test
-  coverage.
-- Step 3 revises the plan.
-- Step 4 Codex writes DDL, workflow YAML, and a smoke script.
-- Step 5 Claude reviews SQL/YAML and smoke behavior.
-- Step 6 Gemini reviews GCP deployment if new IAM/services are involved.
-- Step 7 smoke test verifies workflow success and target partition health.
+User: After step 7, smoke test exits 1: "expected partition row count > 0,
+got 0".
 
-### Triage After Smoke Test Failure
-
-Smoke test fails:
-
-```text
-expected partition row count > 0, got 0
-```
-
-Triage:
-
-- Read `smoke.log`: workflow succeeded but target partition is empty.
-- Read `plan.md`: source query filters `WHERE event_date = CURRENT_DATE()`.
-- Infer likely timezone mismatch if data lands on local-day boundaries.
-- Classify as "behavior matches code but not plan intent".
-- Route back to Step 1 to fix the plan with explicit timezone semantics.
-- Write conclusion to `runs/<timestamp>-<feature>/triage.md`.
+- Read `runs/20260508-103000-dm-kol-daily/smoke.log` → workflow finished
+  with status SUCCEEDED but target partition empty
+- Read `plans/dm-kol-daily/plan.md` → source query filters
+  `WHERE event_date = CURRENT_DATE()`
+- Hypothesis: source data lands at 22:00 local (UTC+8) = next-day UTC,
+  `CURRENT_DATE()` runs in UTC and looks at the wrong partition
+- Triage classification: "Behavior matches code but not plan intent"
+  → **Step 1** (fix plan: spec timezone explicitly)
+- Write `runs/20260508-103000-dm-kol-daily/triage.md`, escalate to user
+  with proposed plan revision (add `event_date_tw` column or convert to
+  Asia/Taipei before filter)

@@ -10,7 +10,7 @@ thread, this skill coordinates **Claude + Codex + Gemini** through a fixed
 workflow:
 
 ```text
-plan -> review -> code -> review -> deploy -> smoke test -> triage
+plan -> review -> code -> review -> deploy -> smoke test -> triage -> retrospective
 ```
 
 The goal is not ceremony. The goal is to make autonomous development
@@ -32,6 +32,7 @@ plan, assumptions, validation, rollback path, and post-deploy evidence aligned.
 - Produce a smoke test as part of implementation
 - Review deploy-sensitive changes before release
 - Route failures back to the correct step instead of guessing
+- Run an unbiased retrospective so the workflow keeps improving
 - Leave artifacts behind so humans can audit or resume the work
 
 ## When to use it
@@ -58,14 +59,15 @@ Skip it for:
 
 | Step | Owner | Output |
 |---|---|---|
-| 1. Plan | Claude | `plans/<feature>/plan.md` + `validation.md` |
-| 2. Plan review | Codex | `plans/<feature>/review-codex.md` |
-| 3. Revise + re-review | Claude + Codex | revised plan artifacts |
-| 3.5. Red team, conditional | Claude + Codex + Gemini | `plans/<feature>/red-team.md` |
-| 4. Implement | Codex | source files + `scripts/smoke/<feature>.sh` |
-| 5. Code review | Claude | inline fixes or review notes back to Codex |
+| 1. Plan | Claude | `plans/<feature>/plan.md` + `validation.md` (Pass 1) |
+| 2. Plan review (round 1) | Codex | `plans/<feature>/review-codex-round1.md` |
+| 3. Revise + re-review (round 2) | Claude + Codex | `plans/<feature>/review-codex-round2.md` |
+| 3.5. Red team, conditional | Claude + Codex + Gemini | `plans/<feature>/red-team.md` + revised `validation.md` (Pass 2) |
+| 4. Implement | Codex | source files + `plans/<feature>/deviations.md` + `scripts/smoke/<feature>.sh` |
+| 5. Code review | Claude | `plans/<feature>/review-claude.md` (inline fixes or notes back to Codex) |
 | 6. Deploy review, conditional GCP | Gemini | `plans/<feature>/review-gemini.md` |
 | 7. Verify + triage | Claude | `runs/<timestamp>-<feature>/{smoke.log,triage.md}` |
+| 8. Self-evaluation | Claude subagent | `plans/<feature>/evaluation.md` (+ periodic `runs/rollup-<YYYYMM>.md`) |
 
 If the smoke test fails, the skill classifies the failure and routes it:
 
@@ -112,13 +114,18 @@ plans/<feature>/
   plan.md
   validation.md
   red-team.md
-  review-codex.md
+  review-codex-round1.md
+  review-codex-round2.md
+  deviations.md
+  review-claude.md
   review-gemini.md
+  evaluation.md
 deploy/<feature>/
 scripts/smoke/<feature>.sh
 runs/<timestamp>-<feature>/
   smoke.log
   triage.md
+runs/rollup-<YYYYMM>.md
 ```
 
 `<feature>` should be kebab-case, such as `workflow-daily-ingest`.
@@ -147,12 +154,13 @@ refresh it at 6am.
 
 The skill produces:
 
-- A concrete implementation plan and validation plan
-- Codex review notes challenging schema, IAM, deploy order, and smoke coverage
-- Implementation plus an idempotent smoke test
-- Claude code review
+- A concrete implementation plan and a two-pass validation plan
+- Codex review notes across two rounds, challenging schema, IAM, deploy order, and smoke coverage
+- Implementation plus a `deviations.md` audit log and an idempotent smoke test
+- Claude code review notes (`review-claude.md`)
 - Optional Gemini deploy review if GCP risk is high
 - Smoke-test output and triage if verification fails
+- An unbiased retrospective (`evaluation.md`) scoring plan quality, review usefulness, implementation drift, and trigger correctness
 
 ## License
 
