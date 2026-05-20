@@ -1,36 +1,45 @@
 # multi-agent-dev-loop
 
-一個 standalone skill，用多 agent 開發流程處理高風險實作工作。
+> **別讓單一 agent 在同一條脆弱的對話裡，包辦計畫、寫 code、部署、除錯。**
+> 給高風險自主開發一套有紀律的工作流：每一步都產出一份檔案，可稽核、可恢復、可回溯。
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/permoon/multi-agent-dev-loop?style=social)](https://github.com/permoon/multi-agent-dev-loop/stargazers)
 
 ![流程圖](./docs/demo.png)
 
-它不是讓單一 agent 在同一段脆弱對話裡一次完成計畫、寫 code、部署和除錯，
-而是把 **Claude + Codex + Gemini** 串成固定流程：
+把 **Claude + Codex + Gemini** 串成固定 8 步流程：
 
 ```text
-計畫 -> 審查 -> 實作 -> 審查 -> 部署 -> smoke test -> triage -> 回顧
+計畫 → 審查 → 實作 → 審查 → 部署 → smoke test → triage → 回顧
 ```
 
-目的不是增加儀式感，而是讓自主開發在有真實爆炸半徑時，仍然**可恢復、
-可檢查、比較安全**。
+每一步產出固定 artifact。失敗時自動分流回正確的 step。
 
 [English](./README.md)
 
+## 跟直接用 Claude Code 有什麼不同？
+
+Claude Code 給你 agent 和工具，這個 skill 給你**工作紀律**：固定的步驟順序、單獨的計畫審查、高風險工作的 red team 關卡、部署後 smoke test、和無偏見的回顧。重點不是更多 agent，而是清楚的責任歸屬，和事情壞掉時有東西可以追。
+
 ## 為什麼需要它
 
-AI coding agent 很會衝刺，但高風險工作需要的不只是速度。當任務碰到
-schema、IAM、資料 pipeline、部署設定、migration 或多檔變更時，真正困難的
-通常不是寫 code，而是讓計畫、假設、驗證、回滾路徑和部署後證據保持一致。
+AI agent 很會衝刺，但高風險工作真正困難的不是速度，而是讓計畫、假設、驗證、回滾路徑和部署證據在數小時的 context 裡保持一致。
 
-`multi-agent-dev-loop` 給 agent 一套可重複的工作模式：
+**沒有這個 skill：**
 
-- 寫 code 前先產出具體計畫
-- 讓另一個 agent 挑戰計畫和驗證策略
-- 實作時一併產生 smoke test
-- 部署敏感變更先做額外 review
-- 失敗時分流回正確步驟，而不是亂猜
-- 跑一輪無偏見的回顧，讓流程本身持續改進
-- 留下 artifacts，讓人可以稽核或接手恢復
+- 一個 agent 包辦計畫、code、部署、除錯，全在一條脆弱對話裡
+- 失敗時就地補丁，沒人知道哪個假設壞了
+- context 切換或 session 中斷，工作很難接手
+- review 都在 chat 裡跑掉，什麼都沒留下
+
+**有了這個 skill：**
+
+- 每一步寫進固定檔案（`plan.md`、`validation.md`、`deviations.md`...）
+- 計畫先被第二個 agent 審查，才開始寫 code
+- 大爆炸半徑的工作有 red-team 關卡
+- 部署後 smoke test 失敗自動分流回對的 step（計畫 / code / 部署 / 驗證）
+- 無偏見的回顧會幫流程本身打分數，讓 skill 持續改進
 
 ## 何時使用
 
@@ -158,6 +167,12 @@ skill 會產生：
 - 如果 GCP 風險高，進行 Gemini deploy review
 - smoke-test output，以及驗證失敗時的 triage
 - 無偏見的回顧（`evaluation.md`），針對 plan quality、review usefulness、implementation drift 與 trigger correctness 評分
+
+## 如果你覺得有用
+
+- 給 repo 一顆星，方便之後回來找
+- 開 issue 講你想用在什麼樣的工作上 — 這會決定後續加什麼
+- skill 設計上就是要被 fork 改造的：複製到你的 skills 資料夾，把步驟改成你的 stack 用得順的版本
 
 ## License
 

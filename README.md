@@ -1,39 +1,45 @@
 # multi-agent-dev-loop
 
-A standalone skill for running high-risk implementation work through a
-multi-agent development loop.
+> **Stop letting one agent plan, code, deploy, and debug in the same fragile thread.**
+> A disciplined loop for risky autonomous work — every step writes a file you can audit, resume, or rewind to.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/permoon/multi-agent-dev-loop?style=social)](https://github.com/permoon/multi-agent-dev-loop/stargazers)
 
 ![Workflow diagram](./docs/demo.png)
 
-Instead of asking one agent to plan, code, deploy, and debug in a single fragile
-thread, this skill coordinates **Claude + Codex + Gemini** through a fixed
-workflow:
+Coordinates **Claude + Codex + Gemini** through a fixed 8-step workflow:
 
 ```text
-plan -> review -> code -> review -> deploy -> smoke test -> triage -> retrospective
+plan → review → code → review → deploy → smoke test → triage → retrospect
 ```
 
-The goal is not ceremony. The goal is to make autonomous development
-**resumable, inspectable, and safer when the blast radius is real**.
+Each step produces a fixed artifact. Failures route back to the right step automatically.
 
 [繁體中文](./README.zh-TW.md)
 
+## How is this different from just using Claude Code?
+
+Claude Code gives you the agent and the tools. This skill gives you the **operating discipline**: a fixed sequence, a separate plan-review pass, a red-team gate for high-risk work, post-deploy smoke tests, and an unbiased retrospective. The point is not more agents — it's clear ownership and an audit trail when things break.
+
 ## Why this exists
 
-AI coding agents are good at moving fast, but risky work needs more than speed.
-When a task touches schema, IAM, data pipelines, deploy config, migrations, or
-multiple files, the hard part is usually not writing code. It is keeping the
-plan, assumptions, validation, rollback path, and post-deploy evidence aligned.
+AI agents are good at speed. They are bad at the part that actually matters when work is risky: keeping the plan, assumptions, validation, rollback path, and post-deploy evidence aligned across hours of context.
 
-`multi-agent-dev-loop` gives the agent a repeatable operating model:
+**Without this skill:**
 
-- Write a concrete plan before coding
-- Challenge the plan and validation strategy with another agent
-- Produce a smoke test as part of implementation
-- Review deploy-sensitive changes before release
-- Route failures back to the correct step instead of guessing
-- Run an unbiased retrospective so the workflow keeps improving
-- Leave artifacts behind so humans can audit or resume the work
+- One agent plans, codes, deploys, debugs — all in one fragile thread
+- Failures get patched in place; no one knows which assumption broke
+- If you context-switch or the session dies, the work is hard to resume
+- Reviews happen in chat; nothing is left to audit
+
+**With this skill:**
+
+- Each step writes a fixed artifact (`plan.md`, `validation.md`, `deviations.md`, ...)
+- The plan is reviewed by a second agent *before* any code is written
+- High-blast-radius work gets a red-team gate
+- Post-deploy smoke test failures route back to the *right* step (plan / code / deploy / validation)
+- A blind retrospective scores the loop itself, so the skill improves over time
 
 ## When to use it
 
@@ -161,6 +167,12 @@ The skill produces:
 - Optional Gemini deploy review if GCP risk is high
 - Smoke-test output and triage if verification fails
 - An unbiased retrospective (`evaluation.md`) scoring plan quality, review usefulness, implementation drift, and trigger correctness
+
+## If this is useful
+
+- Star the repo if it's worth coming back to
+- Open an issue with the kind of work you'd use it for — that shapes what gets added next
+- The skill is designed to be forked: copy it into your skills directory and tune the steps to your stack
 
 ## License
 
