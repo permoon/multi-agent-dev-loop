@@ -5,8 +5,8 @@ description: >
   multi-file features or refactors, architecture decisions, schema/IAM/data
   design or changes, deploys, or any task with rollback risk or large
   blast radius. Covers both greenfield projects and existing codebases.
-  Coordinates Claude (plan, review, triage, retrospective) + Codex (review,
-  code) + Gemini (red team, GCP deploy review) through 8 steps with fixed
+  Coordinates Claude (plan, review, triage, GCP deploy review,
+  retrospective) + Codex (review, code) through 8 steps with fixed
   artifact paths and explicit failure routing. Skip for typos, single-line
   edits, pure exploration, or when the user requests a quick fix.
 ---
@@ -14,10 +14,10 @@ description: >
 # Multi-Agent Dev Loop
 
 A structured collaboration loop that coordinates Claude (planning, code review,
-triage, retrospective), Codex (plan review, implementation), and Gemini (red
-team, GCP deploy review). Each step produces a fixed artifact, enabling
-resumability, auditability, post-deploy verification with automatic failure
-routing, and retrospective evaluation for workflow improvement.
+triage, GCP deploy review, retrospective) and Codex (plan review,
+implementation). Each step produces a fixed artifact, enabling resumability,
+auditability, post-deploy verification with automatic failure routing, and
+retrospective evaluation for workflow improvement.
 
 ## When to Trigger
 
@@ -118,13 +118,13 @@ above.
 **Triggered for**: distributed systems, IAM changes, data destruction,
 concurrency, large blast radius, or when the user requests it.
 
-- Three teams in parallel (`run_in_background`, identical prompt):
-  Claude / `codex exec --full-auto` / `gemini -p`
+- Two teams in parallel (`run_in_background`, identical prompt):
+  Claude / `codex exec --full-auto`
 - **Adopt an attacker's perspective to find failure boundaries; do NOT
   propose fixes.**
 - Check: hidden assumptions, dependency failures, edge inputs, misuse paths,
   rollback and blast radius — concrete failure scenarios, not abstract claims
-- Aggregation: dedupe → split into "consensus (≥2 teams) / single-team only"
+- Aggregation: dedupe → split into "consensus (both teams) / single-team only"
   → grade by severity (must-fix / should-fix / acceptable)
 - Output → `plans/<feature>/red-team.md`
 - **Then revise `validation.md` (Pass 2)**: add smoke checks and rollback
@@ -172,13 +172,23 @@ concurrency, large blast radius, or when the user requests it.
   a Codex one — kept separate from `review-codex-round{1,2}.md`)
 - Report the diff after fixes
 
-### Step 6: Pre-deploy Gemini review (conditional, GCP)
+### Step 6: Pre-deploy GCP review (conditional, GCP)
 
 **Triggered for**: high-risk GCP deploys (IAM changes, new services,
 irreversible data ops, large blast radius).
 
-- `gemini -p` reviews deploy artifacts (workflows yaml, terraform, deploy SQL,
-  IAM config, Cloud Build config, etc.)
+- Claude reviews deploy artifacts (workflows yaml, terraform, deploy SQL,
+  IAM config, Cloud Build config, etc.) while loading the relevant Google
+  Cloud skills so the review reflects current GCP behavior:
+  - IAM / auth surface → `google-cloud-recipe-auth`
+  - BigQuery / data → `bigquery-basics`
+  - Cloud Run / serverless → `cloud-run-basics`
+  - GKE → `gke-basics`
+  - Cloud SQL / AlloyDB → `cloud-sql-basics` / `alloydb-basics`
+  - Security posture → `google-cloud-waf-security`
+  - Reliability posture → `google-cloud-waf-reliability`
+  - Cost posture → `google-cloud-waf-cost-optimization`
+  - Networking diagnostics → `google-cloud-networking-observability`
 - Focus: least-privilege IAM, region / API compatibility, recent GCP behavior
   changes, resource naming and dependency order
 - Apply feedback:
@@ -186,7 +196,7 @@ irreversible data ops, large blast radius).
     Claude already has plan context)
   - **Switch to Codex** for large changes or cross-file refactors
     (`codex exec --full-auto`)
-- Notes → `plans/<feature>/review-gemini.md`
+- Notes → `plans/<feature>/review-gcp.md`
 - Re-deploy after fixes
 
 ### Step 7: Post-deploy verification
@@ -247,7 +257,7 @@ itself can improve over time.
   `review-claude.md`, `scripts/smoke/<feature>.sh`,
   `runs/<timestamp>-<feature>/smoke.log`, git diff for the feature's
   commit range
-- Conditional: `red-team.md` (if Step 3.5 ran), `review-gemini.md` (if Step
+- Conditional: `red-team.md` (if Step 3.5 ran), `review-gcp.md` (if Step
   6 ran), `runs/<timestamp>-<feature>/triage.md` (if Step 7 triaged)
 
 **Rubric (1–5 with anchors)**:
@@ -258,7 +268,7 @@ itself can improve over time.
 | 2 | Review Usefulness | Reviews missed issues that surfaced in Step 7 | Reviews caught some issues but added noise / false positives | Reviews caught the issues that mattered, minimal noise |
 | 3 | Implementation Drift | `deviations.md` missed silent deviations (verifiable from diff) | Deviations recorded but rationale weak | Deviations completely recorded with codebase-grounded rationale |
 | 4 | Trigger Correctness | In hindsight a quick fix — full loop was overkill | Loop justified but some steps added little value | Blast radius genuinely required the full loop |
-| 5 | Time Efficiency | record-only: wall-clock, Codex / Gemini call counts (no anchor) |||
+| 5 | Time Efficiency | record-only: wall-clock, Codex / subagent call counts (no anchor) |||
 
 **For each score < 4**: Evidence (file:line or artifact section) / Impact
 (time, bug, rollback) / Suggested SKILL.md revision (concrete diff target).
@@ -282,7 +292,7 @@ plans/<feature>/
   review-codex-round2.md     # Step 3: Codex plan review notes (second round, if needed)
   deviations.md              # Step 4: implementation deviations from plan
   review-claude.md           # Step 5: Claude code review notes
-  review-gemini.md           # Step 6: Gemini review notes (if triggered)
+  review-gcp.md              # Step 6: GCP deploy review notes (if triggered)
   evaluation.md              # Step 8: retrospective evaluation
 deploy/<feature>/            # Step 6: deploy artifacts (yaml / terraform / SQL / IAM)
 scripts/smoke/<feature>.sh   # Step 4: smoke test script
@@ -309,24 +319,22 @@ Brief progress, no long-form narration.
 
 ## Tool Invocation Notes
 
-- Before invoking Gemini CLI, run `gemini --help` to confirm flags
-  (headless mode blocks `write_file` by default, blocks `.tmp_*`,
-  restricted to cwd)
-- Same for Codex CLI; `codex exec --full-auto` outside a git repo requires
-  `--skip-git-repo-check`. Run `codex exec --help` first to confirm flags
+- Before invoking Codex CLI, run `codex exec --help` first to confirm flags;
+  `codex exec --full-auto` outside a git repo requires `--skip-git-repo-check`
 - Subagent or external tool large output (>10KB) must be written to a repo
   file, not returned inline; messages return only file path, summary, key
   conclusion, next step
-- When dispatching to Codex / Gemini, the orchestrator must specify output
-  format, file path, and large-output rules in the prompt
+- When dispatching to Codex or a Claude subagent, the orchestrator must
+  specify output format, file path, and large-output rules in the prompt
 - If output is truncated or over limit, stop retrying — write to file and
   report the path
 
 ## Prerequisites
 
 - `codex` CLI installed and authenticated (`codex exec --help` works)
-- `gemini` CLI installed and authenticated (only required for steps 3.5 / 6)
 - A working directory where the artifact tree can be created
+- For Step 6 (GCP deploy review), the GCP skills referenced in that step
+  must be installed in the Claude environment
 
 ## Examples
 
@@ -351,8 +359,9 @@ workflow to refresh it at 6am."
   `scripts/smoke/dm-kol-daily.sh` (`bq query` + row-count assertion +
   null check)
 - **Step 5** → Claude review: minor SQL style fix, applied directly
-- **Step 6** → Gemini reviews workflow YAML + IAM (new service combo);
-  suggests adding `connector_params.timeout` to BQ connector
+- **Step 6** → Claude reviews workflow YAML + IAM (new service combo) with
+  `bigquery-basics` + `google-cloud-recipe-auth` + `google-cloud-waf-reliability`
+  loaded; suggests adding `connector_params.timeout` to BQ connector
 - **Step 7** → deploy, run smoke test → exit 0, monitoring window started
 - **Step 8** → subagent reads all artifacts; scores Plan 5 / Reviews 4 /
   Drift 5 / Trigger 5; writes `plans/dm-kol-daily/evaluation.md`

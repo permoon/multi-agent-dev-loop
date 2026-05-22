@@ -8,7 +8,7 @@
 
 ![Workflow diagram](./docs/demo.png)
 
-Coordinates **Claude + Codex + Gemini** through a fixed 8-step workflow:
+Coordinates **Claude + Codex** through a fixed 8-step workflow:
 
 ```text
 plan → review → code → review → deploy → smoke test → triage → retrospect
@@ -68,10 +68,10 @@ Skip it for:
 | 1. Plan | Claude | `plans/<feature>/plan.md` + `validation.md` (Pass 1) |
 | 2. Plan review (round 1) | Codex | `plans/<feature>/review-codex-round1.md` |
 | 3. Revise + re-review (round 2) | Claude + Codex | `plans/<feature>/review-codex-round2.md` |
-| 3.5. Red team, conditional | Claude + Codex + Gemini | `plans/<feature>/red-team.md` + revised `validation.md` (Pass 2) |
+| 3.5. Red team, conditional | Claude + Codex | `plans/<feature>/red-team.md` + revised `validation.md` (Pass 2) |
 | 4. Implement | Codex | source files + `plans/<feature>/deviations.md` + `scripts/smoke/<feature>.sh` |
 | 5. Code review | Claude | `plans/<feature>/review-claude.md` (inline fixes or notes back to Codex) |
-| 6. Deploy review, conditional GCP | Gemini | `plans/<feature>/review-gemini.md` |
+| 6. Deploy review, conditional GCP | Claude (with GCP skills loaded) | `plans/<feature>/review-gcp.md` |
 | 7. Verify + triage | Claude | `runs/<timestamp>-<feature>/{smoke.log,triage.md}` |
 | 8. Self-evaluation | Claude subagent | `plans/<feature>/evaluation.md` (+ periodic `runs/rollup-<YYYYMM>.md`) |
 
@@ -108,10 +108,11 @@ SKILL.md
 ## Prerequisites
 
 - `codex` CLI installed and authenticated (`codex exec --help` works)
-- `gemini` CLI installed and authenticated for red-team and GCP deploy review
 - A working directory where the artifact tree can be created
-
-Gemini is only needed for conditional red-team and GCP deploy-review steps.
+- For Step 6 (GCP deploy review), install the Google Cloud skills referenced
+  in `SKILL.md` Step 6 (e.g. `bigquery-basics`, `cloud-run-basics`,
+  `google-cloud-recipe-auth`, `google-cloud-waf-security`) into your Claude
+  environment so the review can call them
 
 ## Artifact tree
 
@@ -124,7 +125,7 @@ plans/<feature>/
   review-codex-round2.md
   deviations.md
   review-claude.md
-  review-gemini.md
+  review-gcp.md
   evaluation.md
 deploy/<feature>/
 scripts/smoke/<feature>.sh
@@ -164,7 +165,7 @@ The skill produces:
 - Codex review notes across two rounds, challenging schema, IAM, deploy order, and smoke coverage
 - Implementation plus a `deviations.md` audit log and an idempotent smoke test
 - Claude code review notes (`review-claude.md`)
-- Optional Gemini deploy review if GCP risk is high
+- Optional GCP deploy review by Claude with the relevant Google Cloud skills loaded, when GCP risk is high
 - Smoke-test output and triage if verification fails
 - An unbiased retrospective (`evaluation.md`) scoring plan quality, review usefulness, implementation drift, and trigger correctness
 

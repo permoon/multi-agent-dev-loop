@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>multi-agent-dev-loop demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1200px;
+    height: 675px;
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: -apple-system, "Segoe UI", system-ui, "Inter", sans-serif;
+    overflow: hidden;
+  }
+  .canvas {
+    width: 1200px;
+    height: 675px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    position: relative;
+    padding: 36px 40px 56px 40px;
+    gap: 32px;
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .panel-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .panel-mark {
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .panel-title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .panel-sub {
+    font-size: 13px;
+    color: #8b949e;
+    margin-bottom: 18px;
+    font-weight: 400;
+  }
+  .left .panel-mark { color: #f85149; }
+  .right .panel-mark { color: #3fb950; }
+
+  .chat-frame {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 14px 14px 12px 14px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    overflow: hidden;
+  }
+  .bubble {
+    padding: 7px 11px;
+    border-radius: 8px;
+    max-width: 92%;
+  }
+  .b-user {
+    align-self: flex-end;
+    background: #1f6feb;
+    color: #fff;
+  }
+  .b-agent {
+    align-self: flex-start;
+    background: #21262d;
+    color: #c9d1d9;
+  }
+  .b-error {
+    align-self: flex-start;
+    background: #21262d;
+    color: #ffa198;
+    border-left: 2px solid #f85149;
+  }
+  .b-confused {
+    align-self: flex-start;
+    background: #21262d;
+    color: #8b949e;
+    font-style: italic;
+  }
+
+  .tree-frame {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 16px 18px;
+    flex: 1;
+    font-family: "JetBrains Mono", "Consolas", "SF Mono", "Monaco", monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #c9d1d9;
+    overflow: hidden;
+    white-space: pre;
+  }
+  .tree-dir { color: #79c0ff; font-weight: 600; }
+  .tree-tag {
+    color: #8b949e;
+    font-size: 10.5px;
+    margin-left: 6px;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+  }
+  .tree-tag.claude { color: #d2a8ff; }
+  .tree-tag.codex { color: #79c0ff; }
+  .tree-tag.multi { color: #3fb950; }
+
+  .footer-row {
+    margin-top: 14px;
+    font-size: 12px;
+    color: #6e7681;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .footer-row.bad { color: #8b949e; }
+  .footer-row.good { color: #8b949e; }
+
+  .brand {
+    position: absolute;
+    bottom: 16px;
+    left: 0;
+    right: 0;
+    font-size: 12.5px;
+    color: #6e7681;
+    text-align: center;
+    letter-spacing: 0.3px;
+  }
+  .brand strong { color: #c9d1d9; font-weight: 600; }
+  .divider {
+    position: absolute;
+    top: 50px;
+    bottom: 80px;
+    left: 50%;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, #30363d 20%, #30363d 80%, transparent);
+  }
+</style>
+</head>
+<body>
+<div class="canvas">
+
+  <div class="panel left">
+    <div class="panel-header">
+      <span class="panel-mark">✕  BEFORE</span>
+    </div>
+    <div class="panel-sub">one agent, one fragile thread</div>
+    <div class="chat-frame">
+      <div class="bubble b-user">Build daily aggregate table + workflow</div>
+      <div class="bubble b-agent">Planning… done. Writing code…</div>
+      <div class="bubble b-agent">Deploying to staging…</div>
+      <div class="bubble b-agent">Deploying to prod…</div>
+      <div class="bubble b-error">⚠ partition empty in production</div>
+      <div class="bubble b-agent">Let me check what changed…</div>
+      <div class="bubble b-confused">…not sure which step broke. Reverting?</div>
+    </div>
+    <div class="footer-row bad">no plan to compare against &nbsp;·&nbsp; failures patched in place</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="panel right">
+    <div class="panel-header">
+      <span class="panel-mark">✓  AFTER</span>
+    </div>
+    <div class="panel-sub">same task, every step writes a file</div>
+    <div class="tree-frame">
+<span class="tree-dir">plans/dm-kol-daily/</span>
+├─ plan.md                  <span class="tree-tag claude">Claude</span>
+├─ validation.md            <span class="tree-tag claude">Claude · pass 1+2</span>
+├─ review-codex-round1.md   <span class="tree-tag codex">Codex</span>
+├─ review-codex-round2.md   <span class="tree-tag codex">Codex</span>
+├─ red-team.md              <span class="tree-tag multi">2 agents</span>
+├─ deviations.md            <span class="tree-tag codex">Codex</span>
+├─ review-claude.md         <span class="tree-tag claude">Claude</span>
+├─ review-gcp.md            <span class="tree-tag claude">Claude · GCP skills</span>
+└─ evaluation.md            <span class="tree-tag claude">Claude · blind subagent</span>
+<span class="tree-dir">scripts/smoke/</span>dm-kol-daily.sh
+<span class="tree-dir">runs/20260520-103000/</span>
+├─ smoke.log
+└─ triage.md
+    </div>
+    <div class="footer-row good">failures route to the right step &nbsp;·&nbsp; resumable &nbsp;·&nbsp; auditable</div>
+  </div>
+
+</div>
+
+<div class="brand"><strong>multi-agent-dev-loop</strong> &nbsp;·&nbsp; plan → review → code → review → deploy → smoke → triage → retrospect</div>
+
+</body>
+</html>
