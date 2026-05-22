@@ -232,8 +232,13 @@ Run once per feature, after Step 7 settles (smoke test passed, or triage and
 retries concluded). Goal: capture an unbiased retrospective so SKILL.md
 itself can improve over time.
 
+**Before dispatching**: Read `rubric.md` (in this skill folder). Inline its
+full content — subagent prompt framing, inputs, rubric table, score-<4
+contract — into the subagent's prompt. `rubric.md` is the authoritative
+source; if it conflicts with anything here, rubric wins.
+
 - Orchestrator dispatches a fresh Claude subagent (Agent tool,
-  `subagent_type: general-purpose`) with the rubric and artifact paths
+  `subagent_type: general-purpose`) with the rubric content and artifact paths
 - The subagent has no prior conversation context — sees only the rubric and
   the files it is told to read. This is what makes the evaluation unbiased
   versus orchestrator self-evaluation.
@@ -242,44 +247,7 @@ itself can improve over time.
 - Orchestrator confirms the file exists and reports the path; does not
   re-evaluate or argue with the scores
 
-**Subagent prompt framing**:
-
-> You are an independent workflow evaluator. You did not write the plan,
-> review, or code. Score strictly per the rubric. For any score below 4,
-> cite file:line or artifact section as evidence, state impact, and propose
-> a concrete SKILL.md revision. Write to `plans/<feature>/evaluation.md`
-> and exit.
-
-**Inputs passed to subagent**:
-
-- Required: `plan.md`, `validation.md`, `review-codex-round1.md`,
-  `review-codex-round2.md` (if Step 3 ran a second round), `deviations.md`,
-  `review-claude.md`, `scripts/smoke/<feature>.sh`,
-  `runs/<timestamp>-<feature>/smoke.log`, git diff for the feature's
-  commit range
-- Conditional: `red-team.md` (if Step 3.5 ran), `review-gcp.md` (if Step
-  6 ran), `runs/<timestamp>-<feature>/triage.md` (if Step 7 triaged)
-
-**Rubric (1–5 with anchors)**:
-
-| # | Dimension | 1 | 3 | 5 |
-|---|---|---|---|---|
-| 1 | Plan Quality | `plan.md` contains large app-code blocks, or `validation.md` missing a section | Structure complete but rollback trigger not quantified | Fully respects Plan vs Implementation Boundary; all `validation.md` sections quantified |
-| 2 | Review Usefulness | Reviews missed issues that surfaced in Step 7 | Reviews caught some issues but added noise / false positives | Reviews caught the issues that mattered, minimal noise |
-| 3 | Implementation Drift | `deviations.md` missed silent deviations (verifiable from diff) | Deviations recorded but rationale weak | Deviations completely recorded with codebase-grounded rationale |
-| 4 | Trigger Correctness | In hindsight a quick fix — full loop was overkill | Loop justified but some steps added little value | Blast radius genuinely required the full loop |
-| 5 | Time Efficiency | record-only: wall-clock, Codex / subagent call counts (no anchor) |||
-
-**For each score < 4**: Evidence (file:line or artifact section) / Impact
-(time, bug, rollback) / Suggested SKILL.md revision (concrete diff target).
-
-**Roll-up** (every 10 evaluations or monthly, whichever first):
-
-- Orchestrator dispatches a second subagent to aggregate
-  `plans/*/evaluation.md` since the last roll-up
-- Output → `runs/rollup-<YYYYMM>.md` with per-dimension average / minimum,
-  recurring sub-4 dimensions, and repeated SKILL.md revision suggestions
-- Propose SKILL.md changes when the same suggestion appears ≥ 2 times
+For the roll-up cadence (every 10 evaluations or monthly), see `rubric.md`.
 
 ## Artifact Paths
 
@@ -338,47 +306,6 @@ Brief progress, no long-form narration.
 
 ## Examples
 
-### Example 1: New BQ table + Workflow
-
-User: "Add a new daily aggregate table `4D_datamart.dm_kol_daily` and a
-workflow to refresh it at 6am."
-
-- **Step 1** → `plans/dm-kol-daily/plan.md` (table DDL/schema, partition
-  strategy, source query, workflow YAML as a declarative artifact) +
-  `validation.md`:
-  - Pre-deploy: source tables exist, IAM SA has `roles/bigquery.jobUser`
-  - Smoke test: workflow execution succeeds, today's partition has > 0 rows,
-    no null in `kol_id`
-  - Rollback: any null in primary key → drop partition + page on-call
-- **Step 2** → Codex flags: "no clustering on `kol_id`, will scan full table
-  on most queries"
-- **Step 3** → revised plan adds clustering on `kol_id`
-- **Step 3.5** → skipped (low blast radius, not distributed, no IAM destruction)
-- **Step 4** → Codex applies the DDL and workflow YAML from `plan.md` into
-  deploy artifacts, adapts them to repo layout if needed, and writes
-  `scripts/smoke/dm-kol-daily.sh` (`bq query` + row-count assertion +
-  null check)
-- **Step 5** → Claude review: minor SQL style fix, applied directly
-- **Step 6** → Claude reviews workflow YAML + IAM (new service combo) with
-  `bigquery-basics` + `google-cloud-recipe-auth` + `google-cloud-waf-reliability`
-  loaded; suggests adding `connector_params.timeout` to BQ connector
-- **Step 7** → deploy, run smoke test → exit 0, monitoring window started
-- **Step 8** → subagent reads all artifacts; scores Plan 5 / Reviews 4 /
-  Drift 5 / Trigger 5; writes `plans/dm-kol-daily/evaluation.md`
-
-### Example 2: Triage after smoke test failure
-
-User: After step 7, smoke test exits 1: "expected partition row count > 0,
-got 0".
-
-- Read `runs/20260508-103000-dm-kol-daily/smoke.log` → workflow finished
-  with status SUCCEEDED but target partition empty
-- Read `plans/dm-kol-daily/plan.md` → source query filters
-  `WHERE event_date = CURRENT_DATE()`
-- Hypothesis: source data lands at 22:00 local (UTC+8) = next-day UTC,
-  `CURRENT_DATE()` runs in UTC and looks at the wrong partition
-- Triage classification: "Behavior matches code but not plan intent"
-  → **Step 1** (fix plan: spec timezone explicitly)
-- Write `runs/20260508-103000-dm-kol-daily/triage.md`, escalate to user
-  with proposed plan revision (add `event_date_tw` column or convert to
-  Asia/Taipei before filter)
+See `docs/examples.md` for two illustrated end-to-end runs (a new BQ table +
+workflow, and a Step 7 triage). Examples are reference only — the
+orchestrator does not need to read them to execute the loop.
